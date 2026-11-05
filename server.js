@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 
-// Middlewares
+// Middlewares (Aumentado el límite a 10mb para soportar imágenes en base64)
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 
@@ -30,6 +30,9 @@ mongoose.connect(MONGO_URI)
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
+    email: { type: String, default: '' },
+    bio: { type: String, default: '' },
+    avatar: { type: String, default: '' },
     isPro: { type: Boolean, default: false }
 });
 const User = mongoose.model('User', UserSchema);
@@ -42,13 +45,16 @@ const NoteSchema = new mongoose.Schema({
     content: String,
     tag: String,
     color: String,
+    sticker: String,
+    photo: String,
     date: String,
     displayDate: String,
-    highlighted: Boolean
+    highlighted: Boolean,
+    type: { type: String, default: 'note' }
 });
 const Note = mongoose.model('Note', NoteSchema);
 
-// --- RUTAS DE AUTENTICACIÓN (CON PREFIJO /api) ---
+// --- RUTAS DE AUTENTICACIÓN ---
 
 app.post('/api/register', async (req, res) => {
     try {
@@ -94,6 +100,9 @@ app.post('/api/login', async (req, res) => {
             success: true,
             userId: user._id,
             username: user.username,
+            email: user.email,
+            bio: user.bio,
+            avatar: user.avatar,
             isPro: user.isPro
         });
     } catch (err) {
@@ -102,12 +111,53 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS (CON PREFIJO /api) ---
+// --- RUTAS DE PERFIL ---
+
+app.post('/api/profile', async (req, res) => {
+    try {
+        const { userId, email, bio, avatar } = req.body;
+        if (!userId) {
+            return res.status(400).json({ error: "Usuario no especificado" });
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { email, bio, avatar },
+            { new: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+
+        res.json({ success: true, message: "Perfil actualizado correctamente en MongoDB" });
+    } catch (err) {
+        console.error("Error al actualizar perfil:", err);
+        res.status(500).json({ error: "Error al actualizar perfil en la base de datos" });
+    }
+});
+
+app.delete('/api/user/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        // Eliminar todas las notas asociadas al usuario y luego el usuario
+        await Note.deleteMany({ userId });
+        await User.findByIdAndDelete(userId);
+
+        res.json({ success: true, message: "Cuenta y datos eliminados correctamente de MongoDB" });
+    } catch (err) {
+        console.error("Error al eliminar cuenta:", err);
+        res.status(500).json({ error: "Error al eliminar cuenta en la base de datos" });
+    }
+});
+
+// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS Y FOTOS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        const notes = await Note.find({ userId }).sort({ _id: -1 });
+        // Mantiene el orden exacto en el que el usuario organizó sus tarjetas
+        const notes = await Note.find({ userId });
         res.json(notes);
     } catch (err) {
         console.error("Error al obtener notas:", err);
@@ -133,14 +183,17 @@ app.post('/api/notes', async (req, res) => {
                 content: n.content,
                 tag: n.tag || 'Fe',
                 color: n.color || '#ffffff',
+                sticker: n.sticker || '',
+                photo: n.photo || '',
                 date: n.date,
                 displayDate: n.displayDate,
-                highlighted: n.highlighted || false
+                highlighted: n.highlighted || false,
+                type: n.type || 'note'
             }));
             await Note.insertMany(notesToSave);
         }
 
-        res.json({ success: true, message: "Notas sincronizadas correctamente con MongoDB" });
+        res.json({ success: true, message: "Notas y orden sincronizados correctamente con MongoDB" });
     } catch (err) {
         console.error("Error al guardar notas:", err);
         res.status(500).json({ error: "Error al guardar notas en la base de datos" });
