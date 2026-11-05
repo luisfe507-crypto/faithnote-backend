@@ -48,7 +48,7 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model('Note', NoteSchema);
 
-// --- RUTAS DE AUTENTICACIÓN ---
+// --- RUTAS DE AUTENTICACIÓN (CON PREFIJO /api) ---
 
 app.post('/api/register', async (req, res) => {
     try {
@@ -76,6 +76,10 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     try {
         const { username, password } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ error: "Faltan datos obligatorios" });
+        }
+
         const user = await User.findOne({ username });
         if (!user) {
             return res.status(400).json({ error: "Credenciales inválidas" });
@@ -98,7 +102,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS ---
+// --- RUTAS DE NOTAS (CON PREFIJO /api) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
