@@ -6,8 +6,8 @@ require('dotenv').config();
 
 const app = express();
 
-// Middlewares (Aumentado el límite a 10mb para soportar imágenes en base64)
-app.use(express.json({ limit: '10mb' }));
+// Middlewares (Límite aumentado a 15mb para asegurar imágenes en base64 e itinerarios)
+app.use(express.json({ limit: '15mb' }));
 app.use(cors());
 
 // Health Check para Render
@@ -177,6 +177,7 @@ app.post('/api/notes', async (req, res) => {
             return res.status(400).json({ error: "Usuario no especificado" });
         }
 
+        // Borrar registros anteriores del usuario y reemplazar con la lista actual sincronizada
         await Note.deleteMany({ userId });
         
         if (notes && notes.length > 0) {
