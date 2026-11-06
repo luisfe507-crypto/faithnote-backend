@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 
-// Middlewares (Límite aumentado a 15mb para asegurar imágenes en base64 e itinerarios)
+// Middlewares (Límite aumentado a 15mb para asegurar imágenes en base64 y múltiples enlaces de playlist)
 app.use(express.json({ limit: '15mb' }));
 app.use(cors());
 
@@ -157,7 +157,7 @@ app.delete('/api/user/:userId', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, ALABANZAS Y SERVICIOS) ---
+// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, PLAYLISTS Y SERVICIOS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
@@ -201,7 +201,7 @@ app.post('/api/notes', async (req, res) => {
             await Note.insertMany(notesToSave);
         }
 
-        res.json({ success: true, message: "Notas, servicios y orden sincronizados correctamente con MongoDB" });
+        res.json({ success: true, message: "Notas, playlists, servicios y orden sincronizados correctamente con MongoDB" });
     } catch (err) {
         console.error("Error al guardar notas:", err);
         res.status(500).json({ error: "Error al guardar notas en la base de datos" });
