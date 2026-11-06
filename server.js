@@ -157,6 +157,37 @@ app.delete('/api/user/:userId', async (req, res) => {
     }
 });
 
+// --- RUTA SEGURA DE INTELIGENCIA ARTIFICIAL (OPENAI) ---
+app.post('/api/ai', async (req, res) => {
+    try {
+        const { messages, model } = req.body;
+        const apiKey = process.env.OPENAI_API_KEY;
+
+        if (!apiKey) {
+            return res.status(500).json({ error: "La clave de OpenAI no está configurada en las variables de entorno del servidor." });
+        }
+
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: model || "gpt-4o-mini",
+                messages: messages,
+                temperature: 0.5
+            })
+        });
+
+        const data = await response.json();
+        res.json(data);
+    } catch (err) {
+        console.error("Error conectando con OpenAI:", err);
+        res.status(500).json({ error: "Error al procesar la solicitud con IA" });
+    }
+});
+
 // --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, PLAYLISTS Y SERVICIOS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
