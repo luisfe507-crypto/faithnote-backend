@@ -51,6 +51,7 @@ const NoteSchema = new mongoose.Schema({
     displayDate: String,
     highlighted: Boolean,
     type: { type: String, default: 'note' },
+    associatedService: { type: String, default: '' },
     worshipList: [{
         id: String,
         youtubeId: String,
@@ -156,7 +157,7 @@ app.delete('/api/user/:userId', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS Y ALABANZAS) ---
+// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, ALABANZAS Y SERVICIOS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
@@ -193,12 +194,13 @@ app.post('/api/notes', async (req, res) => {
                 displayDate: n.displayDate,
                 highlighted: n.highlighted || false,
                 type: n.type || 'note',
+                associatedService: n.associatedService || '',
                 worshipList: n.worshipList || []
             }));
             await Note.insertMany(notesToSave);
         }
 
-        res.json({ success: true, message: "Notas y orden sincronizados correctamente con MongoDB" });
+        res.json({ success: true, message: "Notas, servicios y orden sincronizados correctamente con MongoDB" });
     } catch (err) {
         console.error("Error al guardar notas:", err);
         res.status(500).json({ error: "Error al guardar notas en la base de datos" });
