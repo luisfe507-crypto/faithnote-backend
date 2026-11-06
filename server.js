@@ -50,7 +50,13 @@ const NoteSchema = new mongoose.Schema({
     date: String,
     displayDate: String,
     highlighted: Boolean,
-    type: { type: String, default: 'note' }
+    type: { type: String, default: 'note' },
+    worshipList: [{
+        id: String,
+        youtubeId: String,
+        title: String,
+        rawInput: String
+    }]
 });
 const Note = mongoose.model('Note', NoteSchema);
 
@@ -140,7 +146,6 @@ app.post('/api/profile', async (req, res) => {
 app.delete('/api/user/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        // Eliminar todas las notas asociadas al usuario y luego el usuario
         await Note.deleteMany({ userId });
         await User.findByIdAndDelete(userId);
 
@@ -151,12 +156,11 @@ app.delete('/api/user/:userId', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS Y FOTOS) ---
+// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS Y ALABANZAS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        // Mantiene el orden exacto en el que el usuario organizó sus tarjetas
         const notes = await Note.find({ userId });
         res.json(notes);
     } catch (err) {
@@ -188,7 +192,8 @@ app.post('/api/notes', async (req, res) => {
                 date: n.date,
                 displayDate: n.displayDate,
                 highlighted: n.highlighted || false,
-                type: n.type || 'note'
+                type: n.type || 'note',
+                worshipList: n.worshipList || []
             }));
             await Note.insertMany(notesToSave);
         }
