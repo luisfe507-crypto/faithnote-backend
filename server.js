@@ -188,6 +188,53 @@ app.post('/api/ai', async (req, res) => {
     }
 });
 
+// --- RUTA PARA COMPARTIR NOTA O PLAYLIST CON OTRO USUARIO EN TIEMPO REAL ---
+app.post('/api/notes/share', async (req, res) => {
+    try {
+        const { senderUsername, recipientEmailOrUser, noteId } = req.body;
+        
+        // 1. Buscar la nota original del remitente
+        const originalNote = await Note.findById(noteId);
+        if (!originalNote) {
+            return res.status(404).json({ error: "La nota o playlist no existe." });
+        }
+
+        // 2. Buscar al usuario receptor por nombre de usuario o correo
+        const recipient = await User.findOne({ 
+            $or: [{ username: recipientEmailOrUser }, { email: recipientEmailOrUser }] 
+        });
+        
+        if (!recipient) {
+            return res.status(404).json({ error: "El usuario receptor no fue encontrado por ese correo o nombre." });
+        }
+
+        // 3. Crear una copia de la nota directamente en la cuenta de MongoDB del receptor
+        const sharedNote = new Note({
+            userId: recipient._id,
+            title: `${originalNote.title} (Compartido por ${senderUsername})`,
+            preacher: originalNote.preacher,
+            verse: originalNote.verse,
+            content: originalNote.content,
+            tag: originalNote.tag || 'Fe',
+            color: originalNote.color || '#fffbeb',
+            sticker: originalNote.sticker || '✨',
+            photo: originalNote.photo || '',
+            date: originalNote.date,
+            displayDate: originalNote.displayDate,
+            highlighted: true, // Se destaca automáticamente para que la vea de primera
+            type: originalNote.type || 'note',
+            associatedService: originalNote.associatedService || '',
+            worshipList: originalNote.worshipList || []
+        });
+
+        await sharedNote.save();
+        res.json({ success: true, message: "¡Contenido enviado al muro del destinatario con éxito!" });
+    } catch (err) {
+        console.error("Error al compartir:", err);
+        res.status(500).json({ error: "Error interno al procesar el compartir." });
+    }
+});
+
 // --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, PLAYLISTS Y SERVICIOS) ---
 
 app.get('/api/notes/:userId', async (req, res) => {
