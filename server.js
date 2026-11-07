@@ -61,6 +61,27 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model('Note', NoteSchema);
 
+// Nuevos Esquemas para el Muro de Fe (El Núcleo)
+const PostSchema = new mongoose.Schema({
+    authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    authorName: { type: String, required: true },
+    content: { type: String, required: true },
+    contentType: { type: String, enum: ['text', 'verse', 'praise', 'testimony'], default: 'text' },
+    mediaUrl: { type: String },
+    amenCount: { type: Number, default: 0 },
+    amensBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    createdAt: { type: Date, default: Date.now }
+});
+const Post = mongoose.model('Post', PostSchema);
+
+const ConnectionSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    friendId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['pending', 'accepted'], default: 'accepted' },
+    createdAt: { type: Date, default: Date.now }
+});
+const Connection = mongoose.model('Connection', ConnectionSchema);
+
 // --- RUTAS DE AUTENTICACIÓN ---
 
 app.post('/api/register', async (req, res) => {
@@ -148,6 +169,8 @@ app.delete('/api/user/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         await Note.deleteMany({ userId });
+        await Post.deleteMany({ authorId: userId });
+        await Connection.deleteMany({ $or: [{ userId }, { friendId: userId }] });
         await User.findByIdAndDelete(userId);
 
         res.json({ success: true, message: "Cuenta y datos eliminados correctamente de MongoDB" });
@@ -188,18 +211,90 @@ app.post('/api/ai', async (req, res) => {
     }
 });
 
+// --- RUTAS DEL MURO DE FE (EL NÚCLEO) ---
+
+// 1. Crear una publicación en el Muro
+app.post('/api/feed/posts', async (req, res) => {
+    try {
+        const { authorId, authorName, content, contentType, mediaUrl } = req.body;
+        const newPost = new Post({
+            authorId,
+            authorName,
+            content,
+            contentType: contentType || 'text',
+            mediaUrl
+        });
+        await newPost.save();
+        res.status(201).json({ success: true, post: newPost });
+    } catch (error) {
+        console.error("Error al publicar en el muro:", error);
+        res.status(500).json({ success: false, message: "Error al publicar en el muro." });
+    }
+});
+
+// 2. Obtener el Muro Dinámico (Solo del usuario y su núcleo)
+app.get('/api/feed/posts/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const connections = await Connection.find({ 
+            $or: [{ userId }, { friendId: userId }],
+            status: 'accepted'
+        });
+
+        const trustedIds = [userId];
+        connections.forEach(conn => {
+            if (conn.userId.toString() === userId) trustedIds.push(conn.friendId);
+            else trustedIds.push(conn.userId);
+        });
+
+        const posts = await Post.find({ authorId: { $in: trustedIds } })
+            .sort({ createdAt: -1 })
+            .limit(30);
+
+        res.json({ success: true, posts });
+    } catch (error) {
+        console.error("Error al cargar el muro:", error);
+        res.status(500).json({ success: false, message: "Error al cargar el muro." });
+    }
+});
+
+// 3. Dar "Amén" a una publicación
+app.post('/api/feed/posts/:postId/amen', async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { userId } = req.body;
+
+        const post = await Post.findById(postId);
+        if (!post) return res.status(404).json({ success: false, message: "Publicación no encontrada." });
+
+        const hasAmen = post.amensBy.includes(userId);
+        if (hasAmen) {
+            post.amensBy = post.amensBy.filter(id => id.toString() !== userId);
+            post.amenCount = Math.max(0, post.amenCount - 1);
+        } else {
+            post.amensBy.push(userId);
+            post.amenCount += 1;
+        }
+
+        await post.save();
+        res.json({ success: true, amenCount: post.amenCount, hasAmen: !hasAmen });
+    } catch (error) {
+        console.error("Error al procesar el Amén:", error);
+        res.status(500).json({ success: false, message: "Error al procesar el Amén." });
+    }
+});
+
 // --- RUTA PARA COMPARTIR NOTA O PLAYLIST CON OTRO USUARIO EN TIEMPO REAL ---
 app.post('/api/notes/share', async (req, res) => {
     try {
         const { senderUsername, recipientEmailOrUser, noteId } = req.body;
         
-        // 1. Buscar la nota original del remitente
         const originalNote = await Note.findById(noteId);
         if (!originalNote) {
             return res.status(404).json({ error: "La nota o playlist no existe." });
         }
 
-        // 2. Buscar al usuario receptor por nombre de usuario o correo
         const recipient = await User.findOne({ 
             $or: [{ username: recipientEmailOrUser }, { email: recipientEmailOrUser }] 
         });
@@ -208,7 +303,6 @@ app.post('/api/notes/share', async (req, res) => {
             return res.status(404).json({ error: "El usuario receptor no fue encontrado por ese correo o nombre." });
         }
 
-        // 3. Crear una copia de la nota directamente en la cuenta de MongoDB del receptor
         const sharedNote = new Note({
             userId: recipient._id,
             title: `${originalNote.title} (Compartido por ${senderUsername})`,
@@ -221,7 +315,7 @@ app.post('/api/notes/share', async (req, res) => {
             photo: originalNote.photo || '',
             date: originalNote.date,
             displayDate: originalNote.displayDate,
-            highlighted: true, // Se destaca automáticamente para que la vea de primera
+            highlighted: true,
             type: originalNote.type || 'note',
             associatedService: originalNote.associatedService || '',
             worshipList: originalNote.worshipList || []
@@ -235,7 +329,7 @@ app.post('/api/notes/share', async (req, res) => {
     }
 });
 
-// --- RUTAS DE NOTAS (PERSISTENCIA DE ORDEN, STICKERS, FOTOS, PLAYLISTS Y SERVICIOS) ---
+// --- RUTAS DE NOTAS ---
 
 app.get('/api/notes/:userId', async (req, res) => {
     try {
@@ -255,7 +349,6 @@ app.post('/api/notes', async (req, res) => {
             return res.status(400).json({ error: "Usuario no especificado" });
         }
 
-        // Borrar registros anteriores del usuario y reemplazar con la lista actual sincronizada
         await Note.deleteMany({ userId });
         
         if (notes && notes.length > 0) {
