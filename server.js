@@ -285,6 +285,76 @@ app.post('/api/feed/posts/:postId/amen', async (req, res) => {
     }
 });
 
+// --- RUTAS DE GESTIÓN DE CONEXIONES (MI NÚCLEO) ---
+
+// Listar conexiones del usuario
+app.get('/api/feed/connections/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const connections = await Connection.find({ 
+            $or: [{ userId }, { friendId: userId }],
+            status: 'accepted'
+        }).populate('userId friendId', 'username');
+
+        const formatted = connections.map(conn => {
+            if (!conn.userId || !conn.friendId) return null;
+            const isMeTheUser = conn.userId._id.toString() === userId;
+            const friend = isMeTheUser ? conn.friendId : conn.userId;
+            return {
+                connectionId: conn._id,
+                friendName: friend ? friend.username : 'Hermano'
+            };
+        }).filter(Boolean);
+
+        res.json({ success: true, connections: formatted });
+    } catch (error) {
+        console.error("Error al cargar conexiones:", error);
+        res.status(500).json({ success: false, error: "Error al cargar conexiones" });
+    }
+});
+
+// Crear conexión directa con otro usuario por username o email
+app.post('/api/feed/connections', async (req, res) => {
+    try {
+        const { userId, recipientIdentifier } = req.body;
+        
+        const recipient = await User.findOne({ 
+            $or: [{ username: recipientIdentifier }, { email: recipientIdentifier }] 
+        });
+
+        if (!recipient) {
+            return res.status(404).json({ success: false, error: "Usuario no encontrado." });
+        }
+
+        if (recipient._id.toString() === userId) {
+            return res.status(400).json({ success: false, error: "No puedes conectarte a ti mismo." });
+        }
+
+        const existing = await Connection.findOne({
+            $or: [
+                { userId, friendId: recipient._id },
+                { userId: recipient._id, friendId: userId }
+            ]
+        });
+
+        if (existing) {
+            return res.status(400).json({ success: false, error: "Ya forman parte del mismo núcleo." });
+        }
+
+        const newConn = new Connection({
+            userId,
+            friendId: recipient._id,
+            status: 'accepted'
+        });
+
+        await newConn.save();
+        res.json({ success: true, message: "Conectado con éxito" });
+    } catch (error) {
+        console.error("Error al crear la conexión:", error);
+        res.status(500).json({ success: false, error: "Error al crear la conexión" });
+    }
+});
+
 // --- RUTA PARA COMPARTIR NOTA O PLAYLIST CON OTRO USUARIO EN TIEMPO REAL ---
 app.post('/api/notes/share', async (req, res) => {
     try {
