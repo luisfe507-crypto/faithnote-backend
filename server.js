@@ -25,10 +25,10 @@ mongoose.connect(MONGO_URI)
 // --- ESQUEMAS DE BASE DE DATOS ---
 
 const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true }, // Correo electrónico para acceso
-    name: { type: String, default: '' }, // Nombre real o apodo visible
+    username: { type: String, required: true, unique: true }, // Nombre de usuario (apodo visible)
+    name: { type: String, default: '' }, // Nombre real
+    email: { type: String, required: true, unique: true }, // Correo exclusivo para login
     password: { type: String, required: true },
-    email: { type: String, default: '' },
     bio: { type: String, default: '' },
     avatar: { type: String, default: '' },
     isPro: { type: Boolean, default: false }
@@ -86,21 +86,26 @@ const Connection = mongoose.model('Connection', ConnectionSchema);
 
 app.post('/api/register', async (req, res) => {
     try {
-        const { username, name, password } = req.body;
-        if (!username || !name || !password) {
-            return res.status(400).json({ error: "Faltan datos obligatorios (correo, nombre o contraseña)" });
+        const { username, name, email, password } = req.body;
+        if (!username || !email || !password) {
+            return res.status(400).json({ error: "Faltan datos obligatorios (usuario, correo o contraseña)" });
         }
 
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
+        const existingEmail = await User.findOne({ email });
+        if (existingEmail) {
             return res.status(400).json({ error: "Este correo ya está registrado" });
+        }
+
+        const existingUsername = await User.findOne({ username });
+        if (existingUsername) {
+            return res.status(400).json({ error: "Este nombre de usuario ya está en uso" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ 
             username, 
-            name, 
-            email: username, 
+            name: name || username, 
+            email, 
             password: hashedPassword, 
             isPro: false 
         });
@@ -115,12 +120,12 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
     try {
-        const { username, password } = req.body;
-        if (!username || !password) {
+        const { email, password } = req.body;
+        if (!email || !password) {
             return res.status(400).json({ error: "Faltan datos obligatorios" });
         }
 
-        const user = await User.findOne({ username });
+        const user = await User.findOne({ email });
         if (!user) {
             return res.status(400).json({ error: "Credenciales inválidas" });
         }
@@ -134,8 +139,8 @@ app.post('/api/login', async (req, res) => {
             success: true,
             userId: user._id,
             username: user.username,
-            name: user.name || user.username.split('@')[0],
-            email: user.email || user.username,
+            name: user.name || user.username,
+            email: user.email,
             bio: user.bio,
             avatar: user.avatar,
             isPro: user.isPro
@@ -308,7 +313,7 @@ app.get('/api/feed/connections/:userId', async (req, res) => {
 
         const formatUser = (u) => {
             if (!u) return null;
-            return { id: u._id, username: u.username, name: u.name || u.username.split('@')[0], avatar: u.avatar };
+            return { id: u._id, username: u.username, name: u.name || u.username, avatar: u.avatar };
         };
 
         const acceptedList = acceptedConns.map(conn => {
