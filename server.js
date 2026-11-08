@@ -207,16 +207,22 @@ app.delete('/api/user/:userId', async (req, res) => {
 // --- BUSCAR USUARIOS ---
 app.get('/api/users/search', async (req, res) => {
     try {
-        const { q, currentUserId } = req.query;
-        if (!q || q.trim().length < 2) {
+        const searchTerm = req.query.q || req.query.query; // Soporta ambos nombres de parámetro
+        const { currentUserId } = req.query;
+        
+        if (!searchTerm || searchTerm.trim().length < 2) {
             return res.json({ success: true, users: [] });
         }
 
-        const regex = new RegExp(q, 'i');
+        const regex = new RegExp(searchTerm.trim(), 'i');
         const foundUsers = await User.find({
             _id: { $ne: currentUserId },
-            $or: [{ username: regex }, { name: regex }]
-        }).select('_id username name avatar').limit(10);
+            $or: [
+                { username: regex }, 
+                { name: regex },
+                { email: regex } // <--- Añadido para permitir buscar por correo
+            ]
+        }).select('_id username name email avatar').limit(10);
 
         res.json({ success: true, users: foundUsers });
     } catch (error) {
