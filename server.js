@@ -25,10 +25,10 @@ mongoose.connect(MONGO_URI)
 // --- ESQUEMAS DE BASE DE DATOS ---
 
 const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true },
-    name: { type: String, default: '' }, // Campo de Nombre formal
+    username: { type: String, required: true, unique: true }, // Nombre de usuario (apodo visible)
+    name: { type: String, default: '' }, // Nombre real
+    email: { type: String, required: true, unique: true }, // Correo exclusivo para login
     password: { type: String, required: true },
-    email: { type: String, default: '' },
     bio: { type: String, default: '' },
     avatar: { type: String, default: '' },
     isPro: { type: Boolean, default: false }
@@ -86,18 +86,29 @@ const Connection = mongoose.model('Connection', ConnectionSchema);
 
 app.post('/api/register', async (req, res) => {
     try {
-        const { username, password } = req.body;
-        if (!username || !password) {
-            return res.status(400).json({ error: "Faltan datos obligatorios" });
+        const { username, name, email, password } = req.body;
+        if (!username || !email || !password) {
+            return res.status(400).json({ error: "Faltan datos obligatorios (usuario, correo o contraseña)" });
         }
 
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ error: "El nombre de usuario ya está registrado" });
+        const existingEmail = await User.findOne({ email });
+        if (existingEmail) {
+            return res.status(400).json({ error: "Este correo ya está registrado" });
+        }
+
+        const existingUsername = await User.findOne({ username });
+        if (existingUsername) {
+            return res.status(400).json({ error: "Este nombre de usuario ya está en uso" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ username, name: username, password: hashedPassword, isPro: false });
+        const newUser = new User({ 
+            username, 
+            name: name || username, 
+            email, 
+            password: hashedPassword, 
+            isPro: false 
+        });
         await newUser.save();
 
         res.json({ success: true, message: "Usuario registrado con éxito" });
@@ -109,12 +120,12 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
     try {
-        const { username, password } = req.body;
-        if (!username || !password) {
+        const { email, password } = req.body;
+        if (!email || !password) {
             return res.status(400).json({ error: "Faltan datos obligatorios" });
         }
 
-        const user = await User.findOne({ username });
+        const user = await User.findOne({ email });
         if (!user) {
             return res.status(400).json({ error: "Credenciales inválidas" });
         }
@@ -193,7 +204,7 @@ app.delete('/api/user/:userId', async (req, res) => {
     }
 });
 
-// --- BUSCAR USUARIOS (Para encontrar gente sin requerir correo exacto) ---
+// --- BUSCAR USUARIOS ---
 app.get('/api/users/search', async (req, res) => {
     try {
         const { q, currentUserId } = req.query;
@@ -238,7 +249,6 @@ app.get('/api/feed/posts/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // Conexiones aceptadas
         const connections = await Connection.find({ 
             $or: [{ userId }, { friendId: userId }],
             status: 'accepted'
@@ -285,26 +295,23 @@ app.post('/api/feed/posts/:postId/amen', async (req, res) => {
     }
 });
 
-// --- RUTAS DE GESTIÓN DE CONEXIONES (NÚCLEO CON SOLICITUDES) ---
+// --- RUTAS DE GESTIÓN DE CONEXIONES ---
 
-// Listar conexiones aceptadas y solicitudes pendientes
 app.get('/api/feed/connections/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         
-        // Mis conexiones aceptadas
         const acceptedConns = await Connection.find({ 
             $or: [{ userId }, { friendId: userId }],
             status: 'accepted'
         }).populate('userId friendId', 'username name avatar');
 
-        // Solicitudes recibidas pendientes (donde yo soy friendId y está pending)
         const pendingConns = await Connection.find({
             friendId: userId,
             status: 'pending'
         }).populate('userId', 'username name avatar');
 
-        const formatUser = (u, currentId) => {
+        const formatUser = (u) => {
             if (!u) return null;
             return { id: u._id, username: u.username, name: u.name || u.username, avatar: u.avatar };
         };
@@ -315,13 +322,13 @@ app.get('/api/feed/connections/:userId', async (req, res) => {
             const friend = isMeTheUser ? conn.friendId : conn.userId;
             return {
                 connectionId: conn._id,
-                friend: formatUser(friend, userId)
+                friend: formatUser(friend)
             };
         }).filter(Boolean);
 
         const pendingList = pendingConns.map(conn => ({
             connectionId: conn._id,
-            sender: formatUser(conn.userId, userId)
+            sender: formatUser(conn.userId)
         })).filter(p => p.sender !== null);
 
         res.json({ success: true, connections: acceptedList, pendingRequests: pendingList });
@@ -331,7 +338,6 @@ app.get('/api/feed/connections/:userId', async (req, res) => {
     }
 });
 
-// Enviar solicitud de conexión
 app.post('/api/feed/connections/request', async (req, res) => {
     try {
         const { userId, recipientId } = req.body;
@@ -364,7 +370,6 @@ app.post('/api/feed/connections/request', async (req, res) => {
     }
 });
 
-// Aceptar solicitud de conexión
 app.post('/api/feed/connections/accept', async (req, res) => {
     try {
         const { connectionId } = req.body;
@@ -379,7 +384,6 @@ app.post('/api/feed/connections/accept', async (req, res) => {
     }
 });
 
-// Rechazar o eliminar conexión
 app.delete('/api/feed/connections/:connectionId', async (req, res) => {
     try {
         const { connectionId } = req.params;
