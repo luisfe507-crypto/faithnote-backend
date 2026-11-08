@@ -599,6 +599,55 @@ app.post('/api/ai', async (req, res) => {
     }
 });
 
+// --- RUTAS DE NOTIFICACIONES ---
+
+// Obtener notificaciones de la campana y solicitudes pendientes
+app.get('/api/notifications/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Contar o traer notificaciones no leídas / recientes
+        const notifications = await Notification.find({ recipientId: userId }).sort({ createdAt: -1 }).limit(20);
+
+        const pendingConns = await Connection.find({
+            friendId: userId,
+            status: 'pending'
+        }).populate('userId', 'username name avatar');
+
+        const pendingRequests = pendingConns.map(conn => ({
+            connectionId: conn._id,
+            sender: conn.userId ? { id: conn.userId._id, username: conn.userId.username, name: conn.userId.name || conn.userId.username, avatar: conn.userId.avatar } : null
+        })).filter(p => p.sender !== null);
+
+        res.json({ success: true, notifications, pendingRequests });
+    } catch (error) {
+        console.error("Error al obtener notificaciones:", error);
+        res.status(500).json({ success: false, error: "Error al obtener notificaciones" });
+    }
+});
+
+// Marcar notificaciones como leídas (al abrir la campana)
+app.post('/api/notifications/read/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        await Notification.updateMany({ recipientId: userId, read: false }, { read: true });
+        res.json({ success: true, message: "Notificaciones marcadas como leídas" });
+    } catch (error) {
+        res.status(500).json({ success: false, error: "Error al actualizar notificaciones" });
+    }
+});
+
+// Limpiar / Borrar todas las notificaciones del usuario
+app.delete('/api/notifications/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        await Notification.deleteMany({ recipientId: userId });
+        res.json({ success: true, message: "Notificaciones limpiadas correctamente" });
+    } catch (error) {
+        res.status(500).json({ success: false, error: "Error al limpiar notificaciones" });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor backend corriendo en puerto ${PORT}`);
