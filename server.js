@@ -59,7 +59,7 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model('Note', NoteSchema);
 
-// Muro de Fe (Posts con Avatar y Nombre del autor)
+// Muro de Fe (Posts con Avatar, Nombre del autor y detalle de Améns)
 const PostSchema = new mongoose.Schema({
     authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     authorName: { type: String, required: true },
@@ -69,6 +69,10 @@ const PostSchema = new mongoose.Schema({
     mediaUrl: { type: String },
     amenCount: { type: Number, default: 0 },
     amensBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    amensDetails: [{
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        name: String
+    }],
     createdAt: { type: Date, default: Date.now }
 });
 const Post = mongoose.model('Post', PostSchema);
@@ -207,7 +211,7 @@ app.delete('/api/user/:userId', async (req, res) => {
 // --- BUSCAR USUARIOS ---
 app.get('/api/users/search', async (req, res) => {
     try {
-        const searchTerm = req.query.q || req.query.query; // Soporta ambos nombres de parámetro
+        const searchTerm = req.query.q || req.query.query;
         const { currentUserId } = req.query;
         
         if (!searchTerm || searchTerm.trim().length < 2) {
@@ -220,7 +224,7 @@ app.get('/api/users/search', async (req, res) => {
             $or: [
                 { username: regex }, 
                 { name: regex },
-                { email: regex } // <--- Añadido para permitir buscar por correo
+                { email: regex }
             ]
         }).select('_id username name email avatar').limit(10);
 
@@ -241,7 +245,9 @@ app.post('/api/feed/posts', async (req, res) => {
             authorName,
             authorAvatar,
             content,
-            contentType: contentType || 'text'
+            contentType: contentType || 'text',
+            amensBy: [],
+            amensDetails: []
         });
         await newPost.save();
         res.status(201).json({ success: true, post: newPost });
@@ -280,23 +286,29 @@ app.get('/api/feed/posts/:userId', async (req, res) => {
 app.post('/api/feed/posts/:postId/amen', async (req, res) => {
     try {
         const { postId } = req.params;
-        const { userId } = req.body;
+        const { userId, userName } = req.body;
 
         const post = await Post.findById(postId);
         if (!post) return res.status(404).json({ success: false, message: "Publicación no encontrada." });
 
+        if (!post.amensBy) post.amensBy = [];
+        if (!post.amensDetails) post.amensDetails = [];
+
         const hasAmen = post.amensBy.includes(userId);
         if (hasAmen) {
             post.amensBy = post.amensBy.filter(id => id.toString() !== userId);
+            post.amensDetails = post.amensDetails.filter(item => item.userId && item.userId.toString() !== userId);
             post.amenCount = Math.max(0, post.amenCount - 1);
         } else {
             post.amensBy.push(userId);
+            post.amensDetails.push({ userId, name: userName || 'Un hermano' });
             post.amenCount += 1;
         }
 
         await post.save();
-        res.json({ success: true, amenCount: post.amenCount, hasAmen: !hasAmen });
+        res.json({ success: true, amenCount: post.amenCount, hasAmen: !hasAmen, amensDetails: post.amensDetails });
     } catch (error) {
+        console.error("Error en Amén:", error);
         res.status(500).json({ success: false, message: "Error al procesar el Amén." });
     }
 });
