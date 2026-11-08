@@ -59,7 +59,7 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model('Note', NoteSchema);
 
-// Muro de Fe (Posts con Avatar, Nombre del autor y detalle de Améns)
+// Muro de Fe (Posts con Avatar, Nombre del autor y detalle de Améns con fecha)
 const PostSchema = new mongoose.Schema({
     authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     authorName: { type: String, required: true },
@@ -71,7 +71,8 @@ const PostSchema = new mongoose.Schema({
     amensBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     amensDetails: [{
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        name: String
+        name: String,
+        createdAt: { type: Date, default: Date.now }
     }],
     createdAt: { type: Date, default: Date.now }
 });
@@ -85,6 +86,19 @@ const ConnectionSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 const Connection = mongoose.model('Connection', ConnectionSchema);
+
+// Notificaciones Generales (Campana del Header: Améns e Interacciones)
+const NotificationSchema = new mongoose.Schema({
+    recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    senderName: { type: String, required: true },
+    senderAvatar: { type: String, default: '' },
+    type: { type: String, enum: ['amen', 'connection_request'], required: true },
+    message: { type: String, required: true },
+    read: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+});
+const Notification = mongoose.model('Notification', NotificationSchema);
 
 // --- RUTAS DE AUTENTICACIÓN ---
 
@@ -199,6 +213,7 @@ app.delete('/api/user/:userId', async (req, res) => {
         await Note.deleteMany({ userId });
         await Post.deleteMany({ authorId: userId });
         await Connection.deleteMany({ $or: [{ userId }, { friendId: userId }] });
+        await Notification.deleteMany({ $or: [{ recipientId: userId }, { senderId: userId }] });
         await User.findByIdAndDelete(userId);
 
         res.json({ success: true, message: "Cuenta y datos eliminados correctamente" });
@@ -286,7 +301,7 @@ app.get('/api/feed/posts/:userId', async (req, res) => {
 app.post('/api/feed/posts/:postId/amen', async (req, res) => {
     try {
         const { postId } = req.params;
-        const { userId, userName } = req.body;
+        const { userId, userName, userAvatar } = req.body;
 
         const post = await Post.findById(postId);
         if (!post) return res.status(404).json({ success: false, message: "Publicación no encontrada." });
@@ -299,10 +314,26 @@ app.post('/api/feed/posts/:postId/amen', async (req, res) => {
             post.amensBy = post.amensBy.filter(id => id.toString() !== userId);
             post.amensDetails = post.amensDetails.filter(item => item.userId && item.userId.toString() !== userId);
             post.amenCount = Math.max(0, post.amenCount - 1);
+
+            await Notification.deleteOne({ recipientId: post.authorId, senderId: userId, type: 'amen' });
         } else {
             post.amensBy.push(userId);
             post.amensDetails.push({ userId, name: userName || 'Un hermano' });
             post.amenCount += 1;
+
+            if (post.authorId.toString() !== userId) {
+                await Notification.findOneAndUpdate(
+                    { recipientId: post.authorId, senderId: userId, type: 'amen' },
+                    { 
+                        senderName: userName || 'Hermano en la Fe', 
+                        senderAvatar: userAvatar || '', 
+                        message: `${userName || 'Alguien'} dio Amén a tu publicación.`,
+                        read: false,
+                        createdAt: Date.now()
+                    },
+                    { upsert: true, new: true }
+                );
+            }
         }
 
         await post.save();
@@ -310,6 +341,51 @@ app.post('/api/feed/posts/:postId/amen', async (req, res) => {
     } catch (error) {
         console.error("Error en Amén:", error);
         res.status(500).json({ success: false, message: "Error al procesar el Amén." });
+    }
+});
+
+app.delete('/api/feed/posts/:postId', async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { userId } = req.body;
+
+        const post = await Post.findById(postId);
+        if (!post) return res.status(404).json({ success: false, message: "Publicación no encontrada." });
+
+        if (post.authorId.toString() !== userId) {
+            return res.status(403).json({ success: false, message: "No tienes permiso para eliminar esta publicación." });
+        }
+
+        await Post.findByIdAndDelete(postId);
+        res.json({ success: true, message: "Publicación eliminada correctamente." });
+    } catch (error) {
+        console.error("Error al eliminar publicación:", error);
+        res.status(500).json({ success: false, message: "Error al eliminar publicación." });
+    }
+});
+
+// --- CENTRO DE NOTIFICACIONES UNIFICADO (Campana Header) ---
+
+app.get('/api/notifications/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const notifications = await Notification.find({ recipientId: userId }).sort({ createdAt: -1 }).limit(20);
+
+        const pendingConns = await Connection.find({
+            friendId: userId,
+            status: 'pending'
+        }).populate('userId', 'username name avatar');
+
+        const pendingRequests = pendingConns.map(conn => ({
+            connectionId: conn._id,
+            sender: conn.userId ? { id: conn.userId._id, username: conn.userId.username, name: conn.userId.name || conn.userId.username, avatar: conn.userId.avatar } : null
+        })).filter(p => p.sender !== null);
+
+        res.json({ success: true, notifications, pendingRequests });
+    } catch (error) {
+        console.error("Error al obtener notificaciones:", error);
+        res.status(500).json({ success: false, error: "Error al obtener notificaciones" });
     }
 });
 
